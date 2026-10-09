@@ -330,7 +330,7 @@ async function adminCall(action, params, okMsg, confirmMsg) {
 
 function renderAdmin(app) {
   app.append(el('div', { class: 'notice' },
-    '斉唱役は、プルダウンで選んで「変更」を押し、実施後に「実施済みにする」を押すと斉唱履歴に記録されます。'));
+    '実施後に、斉唱役をプルダウンで選んで「実施済みにする」を押すと、斉唱履歴に記録されます。'));
 
   const now = Date.now();
   const rank = e => (e.closed && !e.singerRecorded) ? 0 : (!e.closed ? 1 : 2);
@@ -358,29 +358,25 @@ function adminCard(ev) {
     ev.singerRecorded ? '　履歴に記録済み' : ''));
 
   if (!ev.singerRecorded) {
-    // 手動で斉唱役を指定する
+    // プルダウンで斉唱役を選び、「実施済みにする」で斉唱履歴に記録する
     const sel = el('select', null);
-    if (!ev.singerId) sel.append(el('option', { value: '' }, '部員を選択'));
+    sel.append(el('option', { value: '' }, '斉唱役を選択'));
     state.members.forEach(m => sel.append(el('option', { value: m.userId }, m.name)));
     sel.value = ev.singerId || '';
-    c.append(el('div', { class: 'admin-row' }, sel,
-      el('button', {
-        type: 'button', class: 'sub',
-        onclick: () => {
-          if (!sel.value) { toast('部員を選択してください'); return; }
-          adminCall('admin_setSinger', { eventId: ev.eventId, userId: sel.value }, '斉唱役を変更しました');
-        },
-      }, '変更')));
 
-    // 辞退 → 再選出 / 実施済みにする
     const done = el('button', {
       type: 'button', class: 'sub',
-      onclick: () => adminCall('admin_markDone', { eventId: ev.eventId }, '斉唱履歴に記録しました',
-        '斉唱履歴に記録します（記録後は斉唱役を変更できません）。よろしいですか？'),
+      onclick: () => {
+        if (!sel.value) { toast('斉唱役を選択してください'); return; }
+        const name = sel.options[sel.selectedIndex].textContent;
+        adminCall('admin_markDone', { eventId: ev.eventId, userId: sel.value }, '斉唱履歴に記録しました',
+          '斉唱役「' + name + '」で斉唱履歴に記録します（記録後は変更できません）。よろしいですか？');
+      },
     }, '実施済みにする');
-    done.disabled = !ev.singerId;
+    done.disabled = !sel.value;
+    sel.addEventListener('change', () => { done.disabled = !sel.value; });
 
-    c.append(el('div', { class: 'admin-row' }, done));
+    c.append(el('div', { class: 'admin-row' }, sel, done));
   }
 
   c.append(summaryArea(ev));
