@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>出欠確認</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1f2328; --muted: #6b7280;
+    --line: #e5e7eb; --accent: #06c755; --accent-text: #ffffff;
+    --sel-bg: #e6f9ee; --warn: #b45309; --warn-bg: #fef3c7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111315; --card: #1b1e21; --text: #e8eaed; --muted: #9aa0a6;
+      --line: #2e3237; --sel-bg: #12301f; --warn: #fbbf24; --warn-bg: #3a2d0a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 15px; line-height: 1.5;
+    padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+  }
+  header { padding: 16px 0 8px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { margin: 0; font-size: 18px; }
+  .who { color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+           border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
+  .badge.match { border-color: var(--accent); color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 14px; margin: 12px 0; }
+  .card h2 { margin: 0 0 4px; font-size: 16px; }
+  .row { color: var(--muted); font-size: 13px; margin: 2px 0; }
+  .row b { color: var(--text); font-weight: 600; }
+  .notice { background: var(--warn-bg); color: var(--warn); border-radius: 8px;
+            padding: 10px 12px; margin: 12px 0; font-size: 13px; }
+  .choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
+  .choices button {
+    flex: 1 1 calc(33% - 8px); min-width: 88px; padding: 10px 6px; font-size: 14px;
+    border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
+  .choices button.sel { border-color: var(--accent); background: var(--sel-bg); font-weight: 700; }
+  input[type=text] {
+    width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font-size: 15px;
+  }
+  .submit {
+    width: 100%; margin-top: 10px; padding: 12px; font-size: 15px; font-weight: 700;
+    border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text);
+  }
+  .submit:disabled { opacity: .5; }
+  .mine { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--sel-bg); font-size: 14px; }
+  details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .ans { margin: 6px 0; font-size: 14px; }
+  .ans .k { font-weight: 700; }
+  .ans .reason { color: var(--muted); }
+  .muted { color: var(--muted); }
+  .err { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
+  .err button { margin-top: 10px; padding: 10px 16px; border-radius: 10px; border: 0;
+                background: var(--accent); color: var(--accent-text); font-size: 15px; }
+  #toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: #222; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  #toast.show { opacity: .95; }
+</style>
+</head>
+<body>
+<header id="hdr"></header>
+<main id="app"><p class="muted">読み込み中…</p></main>
+<div id="toast"></div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+// ===== 設定（ここの2つを書き換える） =====
+const CONFIG = {
+  LIFF_ID: 'ここにLIFF IDを貼り付け',
+  API_URL: 'ここにGASのウェブアプリURL（/execで終わるもの）を貼り付け',
+};
+// =========================================
+
+let state = null;      // APIから受け取った全データ
+const draft = {};      // eventId -> { status, reason }（送信前の入力内容）
+
+/** 要素を作る小さなヘルパー（文字列は必ずテキストとして扱い、HTMLとして解釈しない） */
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  Object.keys(attrs || {}).forEach(k => {
+    if (k === 'class') n.className = attrs[k];
+    else if (k.slice(0, 2) === 'on') n.addEventListener(k.slice(2), attrs[k]);
+    else n.setAttribute(k, attrs[k]);
+  });
+  kids.flat().forEach(c => {
+    if (c === null || c === undefined || c === false) return;
+    n.append(c.nodeType ? c : document.createTextNode(String(c)));
+  });
+  return n;
+}
+
+async function api(action, params) {
+  const body = JSON.stringify(Object.assign({ action: action, idToken: liff.getIDToken() }, params || {}));
+  // text/plain にすることで、ブラウザの事前確認(preflight)を避けてGASに送る
+  const res = await fetch(CONFIG.API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: body,
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error);
+  return json.data;
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function showError(e) {
+  const msg = String((e && e.message) || e);
+  const needLogin = /認証|ログイン/.test(msg);
+  document.getElementById('app').replaceChildren(
+    el('div', { class: 'err' },
+      el('div', null, 'エラー: ' + msg),
+      el('button', { onclick: () => { if (needLogin) { liff.logout(); liff.login(); } else { location.reload(); } } },
+        needLogin ? '再ログイン' : '再読み込み')
+    )
+  );
+}
+
+async function main() {
+  try {
+    await liff.init({ liffId: CONFIG.LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    state = await api('init');
+    render();
+  } catch (e) {
+    showError(e);
+  }
+}
+
+// ---------- 描画 ----------
+
+function render() {
+  const y = window.scrollY;
+  const hdr = document.getElementById('hdr');
+  hdr.replaceChildren(
+    el('h1', null, '出欠確認'),
+    el('div', { class: 'who' }, state.me.name + (state.me.isAdmin ? '（管理者）' : ''))
+  );
+
+  const app = document.getElementById('app');
+  app.replaceChildren();
+
+  if (!state.me.active) {
+    app.append(el('div', { class: 'notice' },
+      '部員として有効になっていないため、回答できません。管理者に連絡してください。'));
+  }
+
+  const now = Date.now();
+  const upcoming = state.events.filter(e => e.dateValue >= now - 12 * 3600 * 1000);
+  const past = state.events.filter(e => e.dateValue < now - 12 * 3600 * 1000).reverse();
+
+  if (upcoming.length === 0) app.append(el('p', { class: 'muted' }, '予定されているイベントはありません。'));
+  upcoming.forEach(ev => app.append(card(ev)));
+
+  if (past.length > 0) {
+    app.append(el('details', null,
+      el('summary', null, '過去のイベント（' + past.length + '件）'),
+      past.map(card)));
+  }
+  window.scrollTo(0, y);
+}
+
+function card(ev) {
+  const c = el('section', { class: 'card' });
+
+  c.append(el('h2', null,
+    el('span', { class: 'badge' + (ev.type === '試合' ? ' match' : '') }, ev.type),
+    ev.dateText));
+  c.append(el('div', { class: 'row' }, '場所: ', el('b', null, ev.place)));
+  c.append(el('div', { class: 'row' }, '回答期限: ', el('b', null, ev.deadlineText), ev.closed ? '（受付終了）' : ''));
+  if (ev.meetTime) c.append(el('div', { class: 'row' }, '集合時間: ', el('b', null, ev.meetTime)));
+  if (ev.meetPlace) c.append(el('div', { class: 'row' }, '集合場所: ', el('b', null, ev.meetPlace)));
+  if (ev.items) c.append(el('div', { class: 'row' }, '持ち物: ', el('b', null, ev.items)));
+  if (ev.note) c.append(el('div', { class: 'row' }, '備考: ', ev.note));
+  if (ev.singerName) c.append(el('div', { class: 'row' }, '斉唱役: ', el('b', null, ev.singerName)));
+
+  c.append(answerArea(ev));
+  c.append(summaryArea(ev));
+  return c;
+}
+
+function answerArea(ev) {
+  const box = el('div');
+
+  if (ev.closed) {
+    box.append(el('div', { class: 'mine' },
+      ev.mine ? 'あなたの回答: ' + ev.mine.status + (ev.mine.reason ? '（' + ev.mine.reason + '）' : '')
+              : 'あなたの回答: 未回答'));
+    return box;
+  }
+  if (!state.me.active) return box;
+
+  const d = draft[ev.eventId] || (draft[ev.eventId] = {
+    status: ev.mine ? ev.mine.status : '',
+    reason: ev.mine ? ev.mine.reason : '',
+  });
+
+  const choices = el('div', { class: 'choices' });
+  state.statuses.forEach(s => {
+    const b = el('button', { type: 'button', class: s === d.status ? 'sel' : '' }, s);
+    b.addEventListener('click', () => {
+      d.status = s;
+      choices.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x.textContent === s));
+      submit.disabled = false;
+    });
+    choices.append(b);
+  });
+
+  const reason = el('input', { type: 'text', maxlength: '200', placeholder: '理由・連絡事項（任意）', value: d.reason || '' });
+  reason.addEventListener('input', () => { d.reason = reason.value; });
+
+  const submit = el('button', { type: 'button', class: 'submit' }, ev.mine ? '回答を変更する' : '回答する');
+  submit.disabled = !d.status;
+  submit.addEventListener('click', async () => {
+    if (!d.status) return;
+    submit.disabled = true;
+    try {
+      state = await api('submit', { eventId: ev.eventId, status: d.status, reason: d.reason || '' });
+      delete draft[ev.eventId];
+      render();
+      toast('回答を送信しました');
+    } catch (e) {
+      submit.disabled = false;
+      toast('送信失敗: ' + e.message);
+    }
+  });
+
+  if (ev.mine) box.append(el('div', { class: 'mine' }, '現在の回答: ' + ev.mine.status + '（期限まで変更できます）'));
+  box.append(choices, reason, submit);
+  return box;
+}
+
+function summaryArea(ev) {
+  const counts = state.statuses
+    .map(s => s + ev.answers.filter(a => a.status === s).length)
+    .join(' ');
+  const det = el('details', null,
+    el('summary', null, '回答状況（' + counts + ' 未回答' + ev.unanswered.length + '）'));
+
+  state.statuses.forEach(s => {
+    const list = ev.answers.filter(a => a.status === s);
+    if (list.length === 0) return;
+    det.append(el('div', { class: 'ans' },
+      el('span', { class: 'k' }, s + ' ' + list.length + '人: '),
+      list.map((a, i) => el('span', null,
+        (i ? '、' : '') + a.name,
+        a.reason ? el('span', { class: 'reason' }, '（' + a.reason + '）') : null))));
+  });
+  det.append(el('div', { class: 'ans' },
+    el('span', { class: 'k' }, '未回答 ' + ev.unanswered.length + '人: '),
+    ev.unanswered.length ? ev.unanswered.join('、') : 'なし'));
+  return det;
+}
+
+main();
+</script>
+</body>
+</html>
