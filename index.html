@@ -303,7 +303,7 @@ async function toggleAdmin() {
   try {
     if (!adminMode) {
       toast('読み込み中…');
-      state = await api('admin_open'); // 開いたタイミングで斉唱役を自動選出
+      state = await api('admin_open'); // 管理者向けデータ（部員一覧など）を取得
       adminMode = true;
     } else {
       state = await api('init');
@@ -330,7 +330,7 @@ async function adminCall(action, params, okMsg, confirmMsg) {
 
 function renderAdmin(app) {
   app.append(el('div', { class: 'notice' },
-    '回答期限が過ぎて斉唱役が未設定の直近（開催日が7日前以降）のイベントは、この画面を開いたときに自動で選出されます。'));
+    '斉唱役は、プルダウンで選んで「変更」を押し、実施後に「実施済みにする」を押すと斉唱履歴に記録されます。'));
 
   const now = Date.now();
   const rank = e => (e.closed && !e.singerRecorded) ? 0 : (!e.closed ? 1 : 2);
@@ -380,17 +380,7 @@ function adminCard(ev) {
     }, '実施済みにする');
     done.disabled = !ev.singerId;
 
-    c.append(el('div', { class: 'admin-row' },
-      el('button', {
-        type: 'button', class: 'sub',
-        onclick: () => adminCall('admin_reselect', { eventId: ev.eventId },
-          s => {
-            const e2 = s.events.find(x => x.eventId === ev.eventId);
-            return e2 && e2.singerName ? '再選出しました: ' + e2.singerName : '候補者がいません';
-          },
-          '現在の斉唱役を除いて再選出します。よろしいですか？'),
-      }, '辞退 → 再選出'),
-      done));
+    c.append(el('div', { class: 'admin-row' }, done));
   }
 
   c.append(summaryArea(ev));
