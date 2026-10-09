@@ -23,9 +23,9 @@
     font-size: 15px; line-height: 1.5;
     padding: 0 16px calc(24px + env(safe-area-inset-bottom));
   }
-  header { padding: 16px 0 8px; display: flex; align-items: center; justify-content: space-between; }
+  header { padding: 16px 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   header h1 { margin: 0; font-size: 18px; }
-  .who { color: var(--muted); font-size: 13px; }
+  .who { color: var(--muted); font-size: 13px; display: flex; align-items: center; }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
            border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
   .badge.match { border-color: var(--accent); color: var(--accent); }
@@ -51,6 +51,18 @@
     border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text);
   }
   .submit:disabled { opacity: .5; }
+  .sub {
+    padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font-size: 13px;
+  }
+  .sub:disabled { opacity: .5; }
+  .who .sub { margin-left: 8px; }
+  .admin-row { display: flex; gap: 8px; margin-top: 10px; }
+  .admin-row .sub { flex: 1; font-size: 14px; padding: 10px 8px; }
+  .admin-row select {
+    flex: 2; min-width: 0; padding: 8px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font-size: 15px;
+  }
   .mine { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--sel-bg); font-size: 14px; }
   details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
   summary { cursor: pointer; color: var(--muted); font-size: 13px; }
@@ -64,7 +76,7 @@
   #toast {
     position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: #222; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 14px;
-    opacity: 0; transition: opacity .2s; pointer-events: none;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; text-align: center;
   }
   #toast.show { opacity: .95; }
 </style>
@@ -83,8 +95,9 @@ const CONFIG = {
 };
 // =========================================
 
-let state = null;      // APIから受け取った全データ
-const draft = {};      // eventId -> { status, reason }（送信前の入力内容）
+let state = null;       // APIから受け取った全データ
+let adminMode = false;  // 管理者画面を表示中か
+const draft = {};       // eventId -> { status, reason }（送信前の入力内容）
 
 /** 要素を作る小さなヘルパー（文字列は必ずテキストとして扱い、HTMLとして解釈しない） */
 function el(tag, attrs, ...kids) {
@@ -118,7 +131,7 @@ function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  setTimeout(() => t.classList.remove('show'), 2400);
 }
 
 function showError(e) {
@@ -144,18 +157,28 @@ async function main() {
   }
 }
 
-// ---------- 描画 ----------
+// ---------- 描画（共通） ----------
 
 function render() {
   const y = window.scrollY;
   const hdr = document.getElementById('hdr');
   hdr.replaceChildren(
-    el('h1', null, '出欠確認'),
-    el('div', { class: 'who' }, state.me.name + (state.me.isAdmin ? '（管理者）' : ''))
+    el('h1', null, adminMode ? '管理者画面' : '出欠確認'),
+    el('div', { class: 'who' },
+      state.me.name + (state.me.isAdmin ? '（管理者）' : ''),
+      state.me.isAdmin
+        ? el('button', { type: 'button', class: 'sub', onclick: toggleAdmin }, adminMode ? '一覧に戻る' : '管理者画面')
+        : null)
   );
 
   const app = document.getElementById('app');
   app.replaceChildren();
+
+  if (adminMode) {
+    renderAdmin(app);
+    window.scrollTo(0, y);
+    return;
+  }
 
   if (!state.me.active) {
     app.append(el('div', { class: 'notice' },
@@ -177,13 +200,18 @@ function render() {
   window.scrollTo(0, y);
 }
 
-function card(ev) {
-  const c = el('section', { class: 'card' });
-
+function eventHeader(c, ev) {
   c.append(el('h2', null,
     el('span', { class: 'badge' + (ev.type === '試合' ? ' match' : '') }, ev.type),
     ev.dateText));
   c.append(el('div', { class: 'row' }, '場所: ', el('b', null, ev.place)));
+}
+
+// ---------- 部員向け画面 ----------
+
+function card(ev) {
+  const c = el('section', { class: 'card' });
+  eventHeader(c, ev);
   c.append(el('div', { class: 'row' }, '回答期限: ', el('b', null, ev.deadlineText), ev.closed ? '（受付終了）' : ''));
   if (ev.meetTime) c.append(el('div', { class: 'row' }, '集合時間: ', el('b', null, ev.meetTime)));
   if (ev.meetPlace) c.append(el('div', { class: 'row' }, '集合場所: ', el('b', null, ev.meetPlace)));
@@ -267,6 +295,106 @@ function summaryArea(ev) {
     el('span', { class: 'k' }, '未回答 ' + ev.unanswered.length + '人: '),
     ev.unanswered.length ? ev.unanswered.join('、') : 'なし'));
   return det;
+}
+
+// ---------- 管理者画面 ----------
+
+async function toggleAdmin() {
+  try {
+    if (!adminMode) {
+      toast('読み込み中…');
+      state = await api('admin_open'); // 開いたタイミングで斉唱役を自動選出
+      adminMode = true;
+    } else {
+      state = await api('init');
+      adminMode = false;
+    }
+    window.scrollTo(0, 0);
+    render();
+  } catch (e) {
+    toast('失敗: ' + e.message);
+  }
+}
+
+/** 管理者操作の共通処理。okMsg は文字列、または新しいstateを受け取る関数 */
+async function adminCall(action, params, okMsg, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    state = await api(action, params);
+    render();
+    toast(typeof okMsg === 'function' ? okMsg(state) : okMsg);
+  } catch (e) {
+    toast('失敗: ' + e.message);
+  }
+}
+
+function renderAdmin(app) {
+  app.append(el('div', { class: 'notice' },
+    '回答期限が過ぎて斉唱役が未設定の直近（開催日が7日前以降）のイベントは、この画面を開いたときに自動で選出されます。'));
+
+  const now = Date.now();
+  const rank = e => (e.closed && !e.singerRecorded) ? 0 : (!e.closed ? 1 : 2);
+  const list = state.events
+    .filter(e => !e.closed || e.dateValue >= now - 30 * 24 * 3600 * 1000)
+    .sort((a, b) => rank(a) - rank(b) || a.dateValue - b.dateValue);
+
+  if (list.length === 0) app.append(el('p', { class: 'muted' }, '対象のイベントがありません。'));
+  list.forEach(ev => app.append(adminCard(ev)));
+}
+
+function adminCard(ev) {
+  const c = el('section', { class: 'card' });
+  eventHeader(c, ev);
+
+  if (!ev.closed) {
+    c.append(el('div', { class: 'row' }, '回答期限: ', el('b', null, ev.deadlineText), '（期限後に斉唱役を選出できます）'));
+    c.append(el('div', { class: 'row' }, '回答済み ' + ev.answers.length + '人 / 未回答 ' + ev.unanswered.length + '人'));
+    c.append(summaryArea(ev));
+    return c;
+  }
+
+  c.append(el('div', { class: 'row' },
+    '斉唱役: ', el('b', null, ev.singerName || '未設定（候補者なし）'),
+    ev.singerRecorded ? '　履歴に記録済み' : ''));
+
+  if (!ev.singerRecorded) {
+    // 手動で斉唱役を指定する
+    const sel = el('select', null);
+    if (!ev.singerId) sel.append(el('option', { value: '' }, '部員を選択'));
+    state.members.forEach(m => sel.append(el('option', { value: m.userId }, m.name)));
+    sel.value = ev.singerId || '';
+    c.append(el('div', { class: 'admin-row' }, sel,
+      el('button', {
+        type: 'button', class: 'sub',
+        onclick: () => {
+          if (!sel.value) { toast('部員を選択してください'); return; }
+          adminCall('admin_setSinger', { eventId: ev.eventId, userId: sel.value }, '斉唱役を変更しました');
+        },
+      }, '変更')));
+
+    // 辞退 → 再選出 / 実施済みにする
+    const done = el('button', {
+      type: 'button', class: 'sub',
+      onclick: () => adminCall('admin_markDone', { eventId: ev.eventId }, '斉唱履歴に記録しました',
+        '斉唱履歴に記録します（記録後は斉唱役を変更できません）。よろしいですか？'),
+    }, '実施済みにする');
+    done.disabled = !ev.singerId;
+
+    c.append(el('div', { class: 'admin-row' },
+      el('button', {
+        type: 'button', class: 'sub',
+        onclick: () => adminCall('admin_reselect', { eventId: ev.eventId },
+          s => {
+            const e2 = s.events.find(x => x.eventId === ev.eventId);
+            return e2 && e2.singerName ? '再選出しました: ' + e2.singerName : '候補者がいません';
+          },
+          '現在の斉唱役を除いて再選出します。よろしいですか？'),
+      }, '辞退 → 再選出'),
+      done));
+  }
+
+  c.append(summaryArea(ev));
+  return c;
 }
 
 main();
