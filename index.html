@@ -105,6 +105,7 @@ let state = null;       // APIから受け取った全データ
 let adminMode = false;  // 管理者画面を表示中か
 let view = 'events';    // 部員向け画面のタブ: 'events'（出欠）/ 'singer'（斉唱履歴）
 let singerData = null;  // 斉唱履歴のデータ（タブを開くたびに取得し直す）
+const SINGER_EVENT_TYPE = '道場練習'; // 斉唱役が発生するイベント種別（管理者画面にはこの種別だけ表示する）
 const draft = {};       // eventId -> { status, reason }（送信前の入力内容）
 
 /** 要素を作る小さなヘルパー（文字列は必ずテキストとして扱い、HTMLとして解釈しない） */
@@ -345,15 +346,16 @@ async function adminCall(action, params, okMsg, confirmMsg) {
 
 function renderAdmin(app) {
   app.append(el('div', { class: 'notice' },
-    '実施後に、斉唱役をプルダウンで選んで「実施済みにする」を押すと、斉唱履歴に記録されます。'));
+    SINGER_EVENT_TYPE + 'のみ表示しています。実施後に、斉唱役をプルダウンで選んで「実施済みにする」を押すと、斉唱履歴に記録されます。'));
 
   const now = Date.now();
   const rank = e => (e.closed && !e.singerRecorded) ? 0 : (!e.closed ? 1 : 2);
   const list = state.events
+    .filter(e => e.type === SINGER_EVENT_TYPE)
     .filter(e => !e.closed || e.dateValue >= now - 30 * 24 * 3600 * 1000)
     .sort((a, b) => rank(a) - rank(b) || a.dateValue - b.dateValue);
 
-  if (list.length === 0) app.append(el('p', { class: 'muted' }, '対象のイベントがありません。'));
+  if (list.length === 0) app.append(el('p', { class: 'muted' }, SINGER_EVENT_TYPE + 'のイベントがありません。'));
   list.forEach(ev => app.append(adminCard(ev)));
 }
 
