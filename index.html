@@ -437,15 +437,14 @@ function renderSinger(app) {
     singerData.summary.length
       ? singerData.summary.map(s => el('div', { class: 'ans' },
           el('span', { class: 'k' }, s.name), '　',
-          s.count ? s.lastText + '（' + s.count + '回）' : '未経験'))
+          s.count ? s.lastText : '未経験'))
       : el('div', { class: 'muted' }, 'データがありません')));
 
   app.append(el('section', { class: 'card' },
     el('h2', null, '履歴'),
     singerData.history.length
       ? singerData.history.map(h => el('div', { class: 'ans' },
-          el('span', { class: 'k' }, h.dateText), '　', h.name,
-          h.type ? el('span', { class: 'reason' }, '（' + h.type + (h.place ? ' @' + h.place : '') + '）') : null))
+          el('span', { class: 'k' }, h.dateText), '　', h.name))
       : el('div', { class: 'muted' }, 'まだ記録がありません')));
 }
 
