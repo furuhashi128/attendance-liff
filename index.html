@@ -73,6 +73,12 @@
   .err { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
   .err button { margin-top: 10px; padding: 10px 16px; border-radius: 10px; border: 0;
                 background: var(--accent); color: var(--accent-text); font-size: 15px; }
+  .tabs { display: flex; gap: 8px; margin: 8px 0 4px; }
+  .tab {
+    flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font-size: 14px;
+  }
+  .tab.on { border-color: var(--accent); background: var(--sel-bg); font-weight: 700; }
   #toast {
     position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: #222; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 14px;
@@ -97,6 +103,8 @@ const CONFIG = {
 
 let state = null;       // APIから受け取った全データ
 let adminMode = false;  // 管理者画面を表示中か
+let view = 'events';    // 部員向け画面のタブ: 'events'（出欠）/ 'singer'（斉唱履歴）
+let singerData = null;  // 斉唱履歴のデータ（タブを開くたびに取得し直す）
 const draft = {};       // eventId -> { status, reason }（送信前の入力内容）
 
 /** 要素を作る小さなヘルパー（文字列は必ずテキストとして扱い、HTMLとして解釈しない） */
@@ -176,6 +184,13 @@ function render() {
 
   if (adminMode) {
     renderAdmin(app);
+    window.scrollTo(0, y);
+    return;
+  }
+
+  app.append(tabs());
+  if (view === 'singer') {
+    renderSinger(app);
     window.scrollTo(0, y);
     return;
   }
@@ -381,6 +396,55 @@ function adminCard(ev) {
 
   c.append(summaryArea(ev));
   return c;
+}
+
+// ---------- 斉唱履歴（部員向け） ----------
+
+function tabs() {
+  const mk = (id, label) => el('button', {
+    type: 'button',
+    class: 'tab' + (view === id ? ' on' : ''),
+    onclick: () => {
+      view = id;
+      render();
+      if (id === 'singer') loadSinger();
+    },
+  }, label);
+  return el('div', { class: 'tabs' }, mk('events', '出欠'), mk('singer', '斉唱履歴'));
+}
+
+async function loadSinger() {
+  try {
+    singerData = await api('singer_history');
+  } catch (e) {
+    toast('失敗: ' + e.message);
+    if (!singerData) singerData = { history: [], summary: [] };
+  }
+  if (view === 'singer' && !adminMode) render();
+}
+
+function renderSinger(app) {
+  if (!singerData) {
+    app.append(el('p', { class: 'muted' }, '読み込み中…'));
+    return;
+  }
+
+  app.append(el('section', { class: 'card' },
+    el('h2', null, '担当状況'),
+    el('div', { class: 'row' }, '最後に担当した日が古い順（未経験の人が上）'),
+    singerData.summary.length
+      ? singerData.summary.map(s => el('div', { class: 'ans' },
+          el('span', { class: 'k' }, s.name), '　',
+          s.count ? s.lastText + '（' + s.count + '回）' : '未経験'))
+      : el('div', { class: 'muted' }, 'データがありません')));
+
+  app.append(el('section', { class: 'card' },
+    el('h2', null, '履歴'),
+    singerData.history.length
+      ? singerData.history.map(h => el('div', { class: 'ans' },
+          el('span', { class: 'k' }, h.dateText), '　', h.name,
+          h.type ? el('span', { class: 'reason' }, '（' + h.type + (h.place ? ' @' + h.place : '') + '）') : null))
+      : el('div', { class: 'muted' }, 'まだ記録がありません')));
 }
 
 main();
