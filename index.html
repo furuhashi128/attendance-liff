@@ -73,6 +73,10 @@
   .err { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
   .err button { margin-top: 10px; padding: 10px 16px; border-radius: 10px; border: 0;
                 background: var(--accent); color: var(--accent-text); font-size: 15px; }
+  .status-select {
+    display: block; width: 100%; margin: 12px 0 8px; padding: 12px 10px; font-size: 15px;
+    border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
   .tabs { display: flex; gap: 8px; margin: 8px 0 4px; }
   .tab {
     flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
@@ -256,15 +260,14 @@ function answerArea(ev) {
     reason: ev.mine ? ev.mine.reason : '',
   });
 
-  const choices = el('div', { class: 'choices' });
-  state.statuses.forEach(s => {
-    const b = el('button', { type: 'button', class: s === d.status ? 'sel' : '' }, s);
-    b.addEventListener('click', () => {
-      d.status = s;
-      choices.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x.textContent === s));
-      submit.disabled = false;
-    });
-    choices.append(b);
+  // 出欠の選択肢はプルダウン（選択肢は「設定」シートから読み込んだもの）
+  const choices = el('select', { class: 'status-select' });
+  choices.append(el('option', { value: '' }, '出欠を選択'));
+  state.statuses.forEach(s => choices.append(el('option', { value: s }, s)));
+  choices.value = d.status || '';
+  choices.addEventListener('change', () => {
+    d.status = choices.value;
+    submit.disabled = !d.status;
   });
 
   const reason = el('input', { type: 'text', maxlength: '200', placeholder: '理由・連絡事項（任意）', value: d.reason || '' });
