@@ -29,6 +29,16 @@
   .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
            border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
   .badge.match { border-color: var(--accent); color: var(--accent); }
+  /* イベント種別ごとの文字色: 道場練習=青、遠的練習=紫、担当月例会=赤 */
+  .card h2.t-dojo { color: #1d4ed8; }
+  .card h2.t-enteki { color: #7e22ce; }
+  .card h2.t-reigetsu { color: #b91c1c; }
+  .card h2 .badge { color: inherit; border-color: currentColor; }
+  @media (prefers-color-scheme: dark) {
+    .card h2.t-dojo { color: #7aa7ff; }
+    .card h2.t-enteki { color: #c4a1ff; }
+    .card h2.t-reigetsu { color: #ff8a8a; }
+  }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
           padding: 14px; margin: 12px 0; }
   .card h2 { margin: 0 0 4px; font-size: 16px; }
@@ -220,9 +230,11 @@ function render() {
   window.scrollTo(0, y);
 }
 
+const TYPE_CLASS = { '道場練習': 't-dojo', '遠的練習': 't-enteki', '担当月例会': 't-reigetsu' };
+
 function eventHeader(c, ev) {
-  c.append(el('h2', null,
-    el('span', { class: 'badge' + (ev.type === '試合' ? ' match' : '') }, ev.type),
+  c.append(el('h2', { class: TYPE_CLASS[String(ev.type).trim()] || '' },
+    el('span', { class: 'badge' }, ev.type),
     ev.dateText));
   c.append(el('div', { class: 'row' }, '場所: ', el('b', null, ev.place)));
 }
